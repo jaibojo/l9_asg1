@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+
+# Training artifacts
+checkpoints/*
+!checkpoints/.gitkeep
+runs/
+*.pth
+*.pt
+
+# Logs
+*.log
+training_log_*.txt 

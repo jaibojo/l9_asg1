@@ -1,4 +1,5 @@
 import torch
+import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from tabulate import tabulate
@@ -26,14 +27,71 @@ def get_transforms():
     
     return transform_train, transform_val
 
-def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4):
+def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_imagenet=False, imagenet_path=None):
     """
     Create training and validation dataloaders
+    Args:
+        train_path: Path to training data directory
+        val_path: Path to validation data directory
+        batch_size: Batch size for training
+        num_workers: Number of workers for data loading
+        use_imagenet: Whether to use ImageNet dataset
+        imagenet_path: Path to ImageNet dataset root directory (should point to CLS-LOC directory)
     """
     transform_train, transform_val = get_transforms()
     
-    train_dataset = torchvision.datasets.ImageFolder(root=train_path, transform=transform_train)
-    val_dataset = torchvision.datasets.ImageFolder(root=val_path, transform=transform_val)
+    if use_imagenet:
+        if not imagenet_path:
+            raise ValueError(
+                "ImageNet path must be provided when using ImageNet dataset. "
+                "Download the dataset from Kaggle: https://www.kaggle.com/c/imagenet-object-localization-challenge/data "
+                "and provide the path to the CLS-LOC directory using --imagenet-path argument."
+            )
+        try:
+            # For Kaggle's ImageNet, we use ImageFolder as the directory structure is different
+            train_dir = os.path.join(imagenet_path, 'train')
+            val_dir = os.path.join(imagenet_path, 'val')
+            
+            if not os.path.exists(train_dir) or not os.path.exists(val_dir):
+                raise RuntimeError(
+                    f"ImageNet directory structure not found in {imagenet_path}. "
+                    "Expected structure:\n"
+                    f"{imagenet_path}/\n"
+                    "├── train/\n"
+                    "│   ├── n01440764/\n"
+                    "│   ├── n01443537/\n"
+                    "│   └── ...\n"
+                    "└── val/\n"
+                    "    ├── n01440764/\n"
+                    "    ├── n01443537/\n"
+                    "    └── ..."
+                )
+            
+            train_dataset = torchvision.datasets.ImageFolder(
+                root=train_dir,
+                transform=transform_train
+            )
+            val_dataset = torchvision.datasets.ImageFolder(
+                root=val_dir,
+                transform=transform_val
+            )
+            
+            # Verify we have the expected number of classes
+            if len(train_dataset.classes) != 1000:
+                raise RuntimeError(
+                    f"Expected 1000 classes in ImageNet dataset, but found {len(train_dataset.classes)}. "
+                    "Please make sure you're using the correct ImageNet directory."
+                )
+                
+        except Exception as e:
+            raise RuntimeError(
+                f"Error loading ImageNet dataset from {imagenet_path}. "
+                "Make sure you have downloaded and extracted the dataset from Kaggle correctly.\n"
+                f"Original error: {str(e)}"
+            ) from e
+    else:
+        train_dataset = torchvision.datasets.ImageFolder(root=train_path, transform=transform_train)
+        val_dataset = torchvision.datasets.ImageFolder(root=val_path, transform=transform_val)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, 
                             shuffle=True, num_workers=num_workers)

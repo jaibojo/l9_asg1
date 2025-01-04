@@ -23,4 +23,4 @@ def load_checkpoint(model, checkpoint_path):
     """
     checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint['model'])
-    return model, checkpoint['acc'], checkpoint['epoch'] 
+    return model, checkpoint['acc'], checkpoint['epoch']

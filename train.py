@@ -7,6 +7,12 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 import torchvision.datasets as datasets
+from torch.cuda.amp import autocast, GradScaler
+
+# Optimize CPU settings
+torch.set_num_threads(32)  # Set number of CPU threads
+torch.set_num_interop_threads(32)  # Set number of interop threads
+torch.backends.cudnn.benchmark = True  # Enable cuDNN auto-tuner
 
 from model import get_model
 from utils import get_dataloaders, validate, MetricLogger
@@ -39,6 +45,9 @@ def train(config):
     
     # Setup device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # Initialize gradient scaler for mixed precision training
+    scaler = GradScaler()
     
     # Get dataloaders
     if config['use_imagenet']:
@@ -83,6 +92,11 @@ def train(config):
         markdown_file=os.path.join(config['checkpoint_dir'], 'TRAINING_LOG.md')
     )
 
+    print(f"\nTraining with mixed precision on device: {device}")
+    print(f"Batch size: {config['batch_size']}")
+    print(f"Number of workers: {config['num_workers']}")
+    print(f"Number of epochs: {config['epochs']}")
+
     # Training loop
     best_acc = 0
     for epoch in range(config['epochs']):
@@ -94,17 +108,28 @@ def train(config):
         for inputs, labels in train_pbar:
             inputs, labels = inputs.to(device), labels.to(device)
             
+            # Mixed precision training
+            with autocast():
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+            
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            
+            # Scale loss and compute gradients
+            scaler.scale(loss).backward()
+            
+            # Unscale gradients and update parameters
+            scaler.step(optimizer)
+            scaler.update()
+            
             scheduler.step()
             
             running_loss += loss.item()
             train_pbar.set_postfix({'loss': loss.item()})
         
         train_loss = running_loss / len(train_loader)
+        
+        # Validation (no need for mixed precision here)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         current_lr = optimizer.param_groups[0]['lr']
         
@@ -119,7 +144,8 @@ def train(config):
                 'acc': val_acc,
                 'epoch': epoch,
                 'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict()
+                'scheduler': scheduler.state_dict(),
+                'scaler': scaler.state_dict(),  # Save scaler state
             }
             torch.save(state, os.path.join(config['checkpoint_dir'], 'best_model.pth'))
             best_acc = val_acc
@@ -132,7 +158,8 @@ if __name__ == '__main__':
     parser.add_argument('--val-path', default='test_data/val', help='Path to validation data')
     parser.add_argument('--checkpoint-dir', default='checkpoints', help='Directory to save checkpoints')
     parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
-    parser.add_argument('--num-workers', type=int, default=4, help='Number of data loading workers')
+    parser.add_argument('--num-workers', type=int, default=16, 
+                       help='Number of data loading workers (recommended: num_cpus/2)')
     parser.add_argument('--learning-rate', type=float, default=0.1, help='Initial learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum')
     parser.add_argument('--weight-decay', type=float, default=1e-4, help='Weight decay')

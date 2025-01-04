@@ -74,14 +74,14 @@ def visualize_dataset_samples(dataset, num_images=16, title="Sample Images"):
     plt.tight_layout()
     plt.show()
 
-def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_imagenet=False, imagenet_path=None, val_split=0.1):
+def get_dataloaders(train_path, val_path, batch_size=256, num_workers=16, use_imagenet=False, imagenet_path=None, val_split=0.1):
     """
-    Create training and validation dataloaders
+    Create training and validation dataloaders with optimized settings
     Args:
         train_path: Path to training data directory
         val_path: Path to validation data directory
         batch_size: Batch size for training
-        num_workers: Number of workers for data loading
+        num_workers: Number of data loading workers (recommended: num_cpus/2)
         use_imagenet: Whether to use ImageNet dataset
         imagenet_path: Path to ImageNet dataset root directory
         val_split: Fraction of data to use for validation (default: 0.1)
@@ -154,21 +154,26 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
         print("\nVisualizing some validation samples...")
         visualize_dataset_samples(val_dataset, title="Validation Samples")
 
-    # Create data loaders
+    # Create optimized data loaders
     train_loader = DataLoader(
-        train_dataset, 
+        dataset=train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True  # This helps speed up data transfer to GPU
+        pin_memory=True,  # Enables faster data transfer to CUDA device
+        persistent_workers=True,  # Keeps worker processes alive between epochs
+        prefetch_factor=2,  # Number of batches loaded in advance by each worker
+        drop_last=True,  # Drop last incomplete batch to ensure consistent size
     )
     
     val_loader = DataLoader(
-        val_dataset, 
+        dataset=val_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True,
+        prefetch_factor=2,
     )
     
     return train_loader, val_loader

@@ -1,7 +1,7 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from tabulate import tabulate
 import time
 from datetime import datetime, timedelta
@@ -74,7 +74,7 @@ def visualize_dataset_samples(dataset, num_images=16, title="Sample Images"):
     plt.tight_layout()
     plt.show()
 
-def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_imagenet=False, imagenet_path=None):
+def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_imagenet=False, imagenet_path=None, val_split=0.1):
     """
     Create training and validation dataloaders
     Args:
@@ -83,7 +83,8 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
         batch_size: Batch size for training
         num_workers: Number of workers for data loading
         use_imagenet: Whether to use ImageNet dataset
-        imagenet_path: Path to ImageNet dataset root directory (should point to CLS-LOC directory)
+        imagenet_path: Path to ImageNet dataset root directory
+        val_split: Fraction of data to use for validation (default: 0.1)
     """
     transform_train, transform_val = get_transforms()
     
@@ -91,44 +92,44 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
         if not imagenet_path:
             raise ValueError(
                 "ImageNet path must be provided when using ImageNet dataset. "
-                "Download the dataset from Kaggle: https://www.kaggle.com/c/imagenet-object-localization-challenge/data "
-                "and provide the path to the CLS-LOC directory using --imagenet-path argument."
+                "Provide the path to the ImageNet directory using --imagenet-path argument."
             )
         try:
-            # For Kaggle's ImageNet, we use ImageFolder as the directory structure is different
-            train_dir = os.path.join(imagenet_path, 'train')
-            val_dir = os.path.join(imagenet_path, 'val')
+            print(f"\nLoading ImageNet dataset from: {imagenet_path}")
+            print("This might take a few moments...")
             
-            if not os.path.exists(train_dir) or not os.path.exists(val_dir):
-                raise RuntimeError(
-                    f"ImageNet directory structure not found in {imagenet_path}. "
-                    "Expected structure:\n"
-                    f"{imagenet_path}/\n"
-                    "├── train/\n"
-                    "│   ├── n01440764/\n"
-                    "│   ├── n01443537/\n"
-                    "│   └── ...\n"
-                    "└── val/\n"
-                    "    ├── n01440764/\n"
-                    "    ├── n01443537/\n"
-                    "    └── ..."
-                )
-            
-            train_dataset = torchvision.datasets.ImageFolder(
-                root=train_dir,
-                transform=transform_train
-            )
-            val_dataset = torchvision.datasets.ImageFolder(
-                root=val_dir,
-                transform=transform_val
+            # Load the full dataset
+            full_dataset = torchvision.datasets.ImageFolder(
+                root=imagenet_path,
+                transform=None  # We'll apply transforms after splitting
             )
             
-            # Verify we have the expected number of classes
-            if len(train_dataset.classes) != 1000:
-                raise RuntimeError(
-                    f"Expected 1000 classes in ImageNet dataset, but found {len(train_dataset.classes)}. "
-                    "Please make sure you're using the correct ImageNet directory."
-                )
+            # Calculate split sizes
+            total_size = len(full_dataset)
+            val_size = int(total_size * val_split)
+            train_size = total_size - val_size
+            
+            # Create train/val splits
+            train_dataset, val_dataset = random_split(
+                full_dataset, 
+                [train_size, val_size],
+                generator=torch.Generator().manual_seed(42)  # For reproducibility
+            )
+            
+            # Create new datasets with appropriate transforms
+            train_dataset = TransformedSubset(train_dataset, transform_train)
+            val_dataset = TransformedSubset(val_dataset, transform_val)
+            
+            # Print dataset statistics
+            print(f"\nDataset split complete:")
+            print(f"Total images: {total_size}")
+            print(f"Training images: {len(train_dataset)}")
+            print(f"Validation images: {len(val_dataset)}")
+            print(f"Number of classes: {len(full_dataset.classes)}")
+            
+            print("\nSample class names:")
+            for i, class_name in enumerate(full_dataset.classes[:5]):
+                print(f"  {i}: {class_name}")
             
             # Visualize some training samples
             print("\nVisualizing some training samples...")
@@ -140,7 +141,6 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
         except Exception as e:
             raise RuntimeError(
                 f"Error loading ImageNet dataset from {imagenet_path}. "
-                "Make sure you have downloaded and extracted the dataset from Kaggle correctly.\n"
                 f"Original error: {str(e)}"
             ) from e
     else:
@@ -154,10 +154,22 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
         print("\nVisualizing some validation samples...")
         visualize_dataset_samples(val_dataset, title="Validation Samples")
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, 
-                            shuffle=True, num_workers=num_workers)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, 
-                          shuffle=False, num_workers=num_workers)
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True  # This helps speed up data transfer to GPU
+    )
+    
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True
+    )
     
     return train_loader, val_loader
 
@@ -278,3 +290,20 @@ class MetricLogger:
                 f.write(f"- Peak Memory Usage: {memory_usage:.1f} GB\n")
             except ImportError:
                 pass 
+
+class TransformedSubset:
+    """
+    Wrapper for applying transforms to a subset of a dataset
+    """
+    def __init__(self, subset, transform):
+        self.subset = subset
+        self.transform = transform
+        
+    def __getitem__(self, idx):
+        x, y = self.subset[idx]
+        if self.transform:
+            x = self.transform(x)
+        return x, y
+        
+    def __len__(self):
+        return len(self.subset) 

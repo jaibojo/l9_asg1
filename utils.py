@@ -6,6 +6,9 @@ from tabulate import tabulate
 import time
 from datetime import datetime, timedelta
 import os
+import matplotlib.pyplot as plt
+import numpy as np
+from torchvision.utils import make_grid
 
 def get_transforms():
     """
@@ -26,6 +29,50 @@ def get_transforms():
     ])
     
     return transform_train, transform_val
+
+def visualize_dataset_samples(dataset, num_images=16, title="Sample Images"):
+    """
+    Visualize sample images from the dataset
+    Args:
+        dataset: PyTorch dataset
+        num_images: Number of images to display
+        title: Title for the plot
+    """
+    # Get a random sample of images
+    indices = torch.randperm(len(dataset))[:num_images]
+    
+    # Create figure
+    fig = plt.figure(figsize=(15, 15))
+    plt.title(title)
+    
+    # Get class names if available
+    class_names = dataset.classes if hasattr(dataset, 'classes') else None
+    
+    for i, idx in enumerate(indices):
+        img, label = dataset[idx]
+        
+        # Convert tensor to image
+        img = img.numpy().transpose((1, 2, 0))
+        # Denormalize
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        img = std * img + mean
+        img = np.clip(img, 0, 1)
+        
+        # Add subplot
+        plt.subplot(int(np.sqrt(num_images)), int(np.sqrt(num_images)), i + 1)
+        plt.imshow(img)
+        
+        # Add label
+        if class_names:
+            plt.title(f"Class: {class_names[label]}")
+        else:
+            plt.title(f"Label: {label}")
+            
+        plt.axis('off')
+    
+    plt.tight_layout()
+    plt.show()
 
 def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_imagenet=False, imagenet_path=None):
     """
@@ -82,6 +129,13 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
                     f"Expected 1000 classes in ImageNet dataset, but found {len(train_dataset.classes)}. "
                     "Please make sure you're using the correct ImageNet directory."
                 )
+            
+            # Visualize some training samples
+            print("\nVisualizing some training samples...")
+            visualize_dataset_samples(train_dataset, title="Training Samples")
+            
+            print("\nVisualizing some validation samples...")
+            visualize_dataset_samples(val_dataset, title="Validation Samples")
                 
         except Exception as e:
             raise RuntimeError(
@@ -92,6 +146,13 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=4, use_ima
     else:
         train_dataset = torchvision.datasets.ImageFolder(root=train_path, transform=transform_train)
         val_dataset = torchvision.datasets.ImageFolder(root=val_path, transform=transform_val)
+        
+        # Visualize some training samples
+        print("\nVisualizing some training samples...")
+        visualize_dataset_samples(train_dataset, title="Training Samples")
+        
+        print("\nVisualizing some validation samples...")
+        visualize_dataset_samples(val_dataset, title="Validation Samples")
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, 
                             shuffle=True, num_workers=num_workers)

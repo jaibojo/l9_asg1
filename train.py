@@ -47,7 +47,8 @@ def train(config):
             None, None,
             config['batch_size'],
             config['num_workers'],
-            use_imagenet=True
+            use_imagenet=True,
+            imagenet_path=config['imagenet_path']
         )
     else:
         train_loader, val_loader = get_dataloaders(

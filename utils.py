@@ -78,15 +78,6 @@ def visualize_dataset_samples(dataset, num_images=16, title="Sample Images"):
 def get_dataloaders(train_path, val_path, batch_size=256, num_workers=32, use_imagenet=False, imagenet_path=None, val_split=0.1, cache_size=100000):
     """
     Create training and validation dataloaders with optimized settings
-    Args:
-        train_path: Path to training data directory
-        val_path: Path to validation data directory
-        batch_size: Batch size for training
-        num_workers: Number of data loading workers (recommended: num_cpus/2)
-        use_imagenet: Whether to use ImageNet dataset
-        imagenet_path: Path to ImageNet dataset root directory
-        val_split: Fraction of data to use for validation (default: 0.1)
-        cache_size: Number of images to cache in memory
     """
     transform_train, transform_val = get_transforms()
     
@@ -100,11 +91,10 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=32, use_im
             print(f"\nLoading ImageNet dataset from: {imagenet_path}")
             print("This might take a few moments...")
             
-            # Load the full dataset
-            full_dataset = CachedImageFolder(
+            # Load the full dataset without caching initially
+            full_dataset = torchvision.datasets.ImageFolder(
                 root=imagenet_path,
-                transform=None,  # We'll apply transforms after splitting
-                cache_size=cache_size
+                transform=None  # We'll apply transforms after splitting
             )
             
             # Calculate split sizes
@@ -129,18 +119,10 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=32, use_im
             print(f"Training images: {len(train_dataset)}")
             print(f"Validation images: {len(val_dataset)}")
             print(f"Number of classes: {len(full_dataset.classes)}")
-            print(f"Images cached in memory: {min(cache_size, total_size)}")
             
             print("\nSample class names:")
             for i, class_name in enumerate(full_dataset.classes[:5]):
                 print(f"  {i}: {class_name}")
-            
-            # Visualize some training samples
-            print("\nVisualizing some training samples...")
-            visualize_dataset_samples(train_dataset, title="Training Samples")
-            
-            print("\nVisualizing some validation samples...")
-            visualize_dataset_samples(val_dataset, title="Validation Samples")
                 
         except Exception as e:
             raise RuntimeError(
@@ -148,17 +130,10 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=32, use_im
                 f"Original error: {str(e)}"
             ) from e
     else:
-        train_dataset = CachedImageFolder(root=train_path, transform=transform_train, cache_size=cache_size)
-        val_dataset = CachedImageFolder(root=val_path, transform=transform_val, cache_size=cache_size)
-        
-        # Visualize some training samples
-        print("\nVisualizing some training samples...")
-        visualize_dataset_samples(train_dataset, title="Training Samples")
-        
-        print("\nVisualizing some validation samples...")
-        visualize_dataset_samples(val_dataset, title="Validation Samples")
+        train_dataset = torchvision.datasets.ImageFolder(root=train_path, transform=transform_train)
+        val_dataset = torchvision.datasets.ImageFolder(root=val_path, transform=transform_val)
 
-    # Create optimized data loaders with larger queue sizes
+    # Create optimized data loaders
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=batch_size,
@@ -166,20 +141,19 @@ def get_dataloaders(train_path, val_path, batch_size=256, num_workers=32, use_im
         num_workers=num_workers,
         pin_memory=True,
         persistent_workers=True,
-        prefetch_factor=4,  # Increased prefetch factor
+        prefetch_factor=2,
         drop_last=True,
-        multiprocessing_context='spawn',
-        generator=torch.Generator().manual_seed(42)
+        multiprocessing_context='spawn'
     )
     
     val_loader = DataLoader(
         dataset=val_dataset,
-        batch_size=batch_size * 2,  # Larger batch size for validation
+        batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
         persistent_workers=True,
-        prefetch_factor=4,
+        prefetch_factor=2,
         multiprocessing_context='spawn'
     )
     

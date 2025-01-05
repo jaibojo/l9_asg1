@@ -8,11 +8,28 @@ from pathlib import Path
 import argparse
 import torchvision.datasets as datasets
 from torch.cuda.amp import autocast, GradScaler
+import torch.multiprocessing as mp
 
-# Optimize CPU settings
-torch.set_num_threads(32)  # Set number of CPU threads
-torch.set_num_interop_threads(32)  # Set number of interop threads
+# Optimize CPU and memory settings for 64 CPU machine
+torch.set_num_threads(64)  # Use all CPU threads
+torch.set_num_interop_threads(64)  # Maximum inter-op parallelism
 torch.backends.cudnn.benchmark = True  # Enable cuDNN auto-tuner
+torch.backends.cudnn.deterministic = False  # Disable deterministic mode for speed
+torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matrix multiplications
+torch.backends.cudnn.allow_tf32 = True  # Enable TF32 for convolutions
+
+# Set multiprocessing start method
+try:
+    mp.set_start_method('spawn')
+except RuntimeError:
+    pass
+
+# Set environment variables for performance
+os.environ['OMP_NUM_THREADS'] = '64'
+os.environ['MKL_NUM_THREADS'] = '64'
+os.environ['NUMEXPR_NUM_THREADS'] = '64'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '64'
+os.environ['OPENBLAS_NUM_THREADS'] = '64'
 
 from model import get_model
 from utils import get_dataloaders, validate, MetricLogger
@@ -157,8 +174,8 @@ if __name__ == '__main__':
     parser.add_argument('--train-path', default='test_data/train', help='Path to training data')
     parser.add_argument('--val-path', default='test_data/val', help='Path to validation data')
     parser.add_argument('--checkpoint-dir', default='checkpoints', help='Directory to save checkpoints')
-    parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
-    parser.add_argument('--num-workers', type=int, default=16, 
+    parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
+    parser.add_argument('--num-workers', type=int, default=32, 
                        help='Number of data loading workers (recommended: num_cpus/2)')
     parser.add_argument('--learning-rate', type=float, default=0.1, help='Initial learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum')
@@ -167,6 +184,8 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', action='store_true', help='Use pretrained model')
     parser.add_argument('--use-imagenet', action='store_true', help='Use ImageNet dataset')
     parser.add_argument('--imagenet-path', type=str, help='Path to ImageNet dataset root directory')
+    parser.add_argument('--cache-size', type=int, default=100000, 
+                       help='Number of images to cache in memory')
     
     args = parser.parse_args()
     
